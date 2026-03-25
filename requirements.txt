@@ -1,0 +1,10 @@
+pandas>=2.0
+openpyxl>=3.1
+streamlit>=1.30
+scikit-learn>=1.3
+pytest>=7.0
+folium>=0.15
+streamlit-folium>=0.18
+openspoor>=0.5
+altair>=5.0
+matplotlib>=3.7
