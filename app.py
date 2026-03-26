@@ -209,15 +209,28 @@ def _render_geocode_map(geocode: str, height: int = 320) -> None:
 
     m = folium.Map(
         location=[center_lat, center_lon],
-        zoom_start=11,
+        zoom_start=13,
         tiles="CartoDB positron",
+        attr=" ",
     )
+
+    folium.TileLayer(
+        tiles="https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png",
+        attr=" ",
+        name="Spoorwegen",
+        overlay=True,
+        opacity=0.6,
+    ).add_to(m)
+
+    m.get_root().html.add_child(folium.Element(
+        '<style>.leaflet-tile-pane .leaflet-layer:last-child img{filter:opacity(0.8) saturate(1.4) brightness(1.15);}</style>'
+    ))
 
     folium.PolyLine(
         points,
-        color=THEME["primary"],
-        weight=5,
-        opacity=0.85,
+        color="#00e64d",
+        weight=7,
+        opacity=1.0,
     ).add_to(m)
 
     st_folium(m, width=None, height=height, returned_objects=[])
@@ -387,6 +400,73 @@ def _inject_theme() -> None:
         .pr-page-intro p {{
             margin: 0.35rem 0 0;
             color: var(--pr-text-muted);
+        }}
+
+        .pr-project-form-gap {{
+            height: 0.75rem;
+        }}
+
+        /* Screen 1: classes added via JS since :has() is unsupported */
+        .pr-project-row {{
+            align-items: flex-start !important;
+        }}
+        .pr-project-left {{
+            border-right: 1px solid var(--pr-border) !important;
+            padding-right: 1.15rem !important;
+            box-sizing: border-box !important;
+        }}
+        .pr-project-right {{
+            padding-left: 1.15rem !important;
+            box-sizing: border-box !important;
+        }}
+
+        .pr-project-split-marker {{
+            display: none;
+        }}
+
+        .pr-left-guide {{
+            margin: 0 0 0.85rem 0;
+            padding: 0;
+            background: none;
+            border: none;
+            border-radius: 0;
+        }}
+        .pr-left-guide p {{
+            margin: 0.35rem 0 0;
+            font-size: 0.88rem;
+            line-height: 1.4;
+            color: var(--pr-text-muted);
+        }}
+
+        /* Hide JS helper iframe */
+        .pr-project-left iframe[height="0"] {{
+            display: none !important;
+        }}
+
+        .pr-upload-success {{
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--pr-success);
+            padding: 0.45rem 0.65rem;
+            background: rgba(0, 130, 46, 0.07);
+            border-radius: 5px;
+            border: 1px solid rgba(0, 130, 46, 0.22);
+            margin-top: 0.5rem;
+            line-height: 1.35;
+        }}
+
+        .pr-form-section-label {{
+            color: var(--pr-text-muted);
+            text-transform: uppercase;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.07em;
+            margin: 1.1rem 0 0.45rem;
+            padding-bottom: 0.2rem;
+            border-bottom: 1px solid var(--pr-border);
+        }}
+        .pr-form-section-label.pr-form-section-first {{
+            margin-top: 0;
         }}
 
         .pr-section-label {{
@@ -572,6 +652,14 @@ def _border_container():
     """st.container(border=True) when supported (Streamlit >= 1.33)."""
     try:
         return st.container(border=True)
+    except TypeError:
+        return st.container()
+
+
+def _project_auto_panel():
+    """Linkerkolom project-paneel zonder kaderlijn."""
+    try:
+        return st.container(border=False)
     except TypeError:
         return st.container()
 
@@ -1068,46 +1156,39 @@ def _cb_load_upload_pid():
     st.session_state.pop("_upload_pids", None)
 
 
-def _cb_fill_pid():
-    """on_click callback for selecting a ProjectID from the dropdown."""
-    selected = st.session_state.get("pid_select")
-    if not selected:
-        return
-    profiles = get_profiles()
-    _autofill_from_pid(selected, profiles)
-
-
 def screen_project():
-    st.header("Projectgegevens")
-    st.markdown(
-        """
-        <div class="pr-page-intro">
-            <div class="pr-section-label">Projectinvoer</div>
-            <strong>Voer projectgegevens in of upload een bestand om velden automatisch te verrijken.</strong>
-            <p>De velden worden gevuld vanuit de beschikbare databronnen (DimGeld, FactBDS, DimPlanning, Ordertaken, DimInfra).</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    import streamlit.components.v1 as _comp_proj
 
-    profiles = get_profiles()
-    all_pids = profiles["ProjectID"].tolist()
+    st.header("Projectgegevens")
 
     for key, default in _FIELD_DEFAULTS.items():
         if key not in st.session_state:
             st.session_state[key] = default
 
-    if st.session_state.pop("_upload_success", False):
-        st.success("Bestand verwerkt — projectvelden zijn ingevuld.")
+    _upload_ok = st.session_state.pop("_upload_success", False)
 
-    # --- Auto-fill options ---
-    st.subheader("Auto-fill")
-    fill_tab1, fill_tab2 = st.tabs(["Bestand uploaden", "ProjectID selecteren"])
+    st.markdown(
+        '<div class="pr-project-form-gap" aria-hidden="true"></div>',
+        unsafe_allow_html=True,
+    )
 
-    with fill_tab1:
+    c_auto, c_fields = st.columns([3, 7])
+
+    with c_auto:
+        st.markdown(
+            """<div class="pr-left-guide"><div class="pr-project-split-marker" aria-hidden="true"></div>
+                <div class="pr-form-section-label pr-form-section-first">Instructie</div>
+                <strong>Vul de projectgegevens in of upload een startbeslissing.</strong>
+                <p>Vul rechts de velden handmatig in, of sleep hieronder een <strong>startbeslissing (startformulier)</strong> om de velden automatisch te laten vullen.
+                Ondersteunde formaten zijn Excel (.xlsx, .xls, .xlsm) en CSV.
+                Na upload klik je op <strong>Verwerk bestand</strong> en worden gegevens zoals kosten, planning, scope en buitendienststellingen automatisch overgenomen.</p>
+            </div>""",
+            unsafe_allow_html=True,
+        )
         uploaded = st.file_uploader(
-            "Upload een bestand met ProjectID",
+            "Upload",
             type=["xlsx", "xls", "xlsm", "csv"],
+            label_visibility="collapsed",
             key="project_upload",
         )
         if uploaded:
@@ -1116,12 +1197,13 @@ def screen_project():
                 key="btn_process_upload",
                 type="primary",
                 on_click=_cb_process_upload,
+                use_container_width=True,
             )
 
         upload_pids = st.session_state.get("_upload_pids")
         if upload_pids:
             chosen = st.selectbox(
-                "Kies een project uit het bestand",
+                "Kies project uit bestand",
                 options=upload_pids,
                 key="upload_pid_choice",
             )
@@ -1129,50 +1211,123 @@ def screen_project():
                 "Laad dit project",
                 key="btn_load_upload",
                 on_click=_cb_load_upload_pid,
+                use_container_width=True,
             )
 
-    with fill_tab2:
-        col_sel, col_btn = st.columns([3, 1])
-        with col_sel:
-            selected_pid = st.selectbox(
+        if _upload_ok:
+            st.markdown(
+                '<div class="pr-upload-success">✓ Velden ingevuld vanuit bestand</div>',
+                unsafe_allow_html=True,
+            )
+
+        _comp_proj.html("""<script>
+            (function() {
+                function apply() {
+                    var doc = window.parent.document;
+                    var marker = doc.querySelector('.pr-project-split-marker');
+                    if (!marker) return;
+                    var col = marker;
+                    while (col && col.parentElement) {
+                        col = col.parentElement;
+                        if (col.getAttribute && col.getAttribute('data-testid') === 'column') break;
+                    }
+                    if (!col) return;
+                    col.classList.add('pr-project-left');
+                    var row = col.parentElement;
+                    if (row) row.classList.add('pr-project-row');
+                    var right = col.nextElementSibling;
+                    if (right) right.classList.add('pr-project-right');
+                }
+                apply();
+                new MutationObserver(apply).observe(window.parent.document.body, {childList: true, subtree: true});
+            })();
+            </script>""", height=0)
+
+    with c_fields:
+        # Initialize widget keys from f_* (only once; does not overwrite edits)
+        _sync_f_to_widgets()
+
+        st.markdown(
+            '<div class="pr-form-section-label pr-form-section-first">Identificatie & locatie</div>',
+            unsafe_allow_html=True,
+        )
+        r_pid_l, r_pid_r = st.columns([2, 3])
+        with r_pid_l:
+            st.text_input(
                 "ProjectID",
-                options=[""] + all_pids,
-                format_func=lambda x: "(kies een project)" if x == "" else x,
-                key="pid_select",
+                key="input_pid",
+                placeholder="bijv. M-003976",
             )
-        with col_btn:
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.button("Vul in", key="btn_fill_pid", on_click=_cb_fill_pid)
+        with r_pid_r:
+            locatie = st.text_input(
+                "Locatie",
+                key="input_locatie",
+                help="Geo-code / gebied",
+                placeholder="bijv. 092 / Randstad-Noord",
+            )
+        st.session_state["f_pid"] = st.session_state.get("input_pid", "")
+        st.session_state["f_locatie"] = locatie
 
-    # --- Editable project fields ---
-    st.markdown("---")
-    st.subheader("Projectvelden")
-
-    # Initialize widget keys from f_* (only once; does not overwrite edits)
-    _sync_f_to_widgets()
-
-    st.text_input("ProjectID", key="input_pid")
-    st.session_state["f_pid"] = st.session_state.get("input_pid", "")
-
-    c1, c2 = st.columns(2)
-
-    with c1:
-        inv = st.number_input(
-            "Investeringskosten prognose (\u20ac)",
-            min_value=0.0,
-            step=10000.0,
-            format="%.2f",
-            key="input_investeringskosten",
+        st.markdown(
+            '<div class="pr-form-section-label">Planning</div>',
+            unsafe_allow_html=True,
         )
-        st.session_state["f_investeringskosten"] = inv
+        r_plan_l, r_plan_r = st.columns(2)
+        with r_plan_l:
+            plandatum = st.date_input(
+                "Plandatum",
+                key="input_plandatum",
+            )
+            st.session_state["f_plandatum"] = plandatum
+        with r_plan_r:
+            klanteis = st.date_input(
+                "Klanteis (opleverdatum)",
+                key="input_klanteis",
+            )
+            st.session_state["f_klanteis"] = klanteis
 
-        btds = st.number_input(
-            "Aantal BTD's (buitendienststellingen)",
-            min_value=0,
-            step=1,
-            key="input_btds",
+        st.markdown(
+            '<div class="pr-form-section-label">Scope</div>',
+            unsafe_allow_html=True,
         )
-        st.session_state["f_btds"] = btds
+        r_scope_l, r_scope_r = st.columns(2)
+        with r_scope_l:
+            scope_delen = st.text_input(
+                "Scope delen (TESI code)",
+                key="input_scope_delen",
+                placeholder="bijv. C01.01",
+            )
+            st.session_state["f_scope_delen"] = scope_delen
+        with r_scope_r:
+            scope_omvang = st.selectbox(
+                "Scope omvang (Complexiteit)",
+                options=["", "Laag", "Midden", "Hoog", "Hoog+"],
+                key="input_scope_omvang",
+            )
+            st.session_state["f_scope_omvang"] = scope_omvang
+
+        st.markdown(
+            '<div class="pr-form-section-label">Kosten & buitendienststellingen</div>',
+            unsafe_allow_html=True,
+        )
+        r_k1, r_k2 = st.columns(2)
+        with r_k1:
+            inv = st.number_input(
+                "Investeringskosten prognose (\u20ac)",
+                min_value=0.0,
+                step=10000.0,
+                format="%.2f",
+                key="input_investeringskosten",
+            )
+            st.session_state["f_investeringskosten"] = inv
+        with r_k2:
+            btds = st.number_input(
+                "Aantal BTD's (buitendienststellingen)",
+                min_value=0,
+                step=1,
+                key="input_btds",
+            )
+            st.session_state["f_btds"] = btds
 
         btd_uren = st.number_input(
             "Totale BTD-duur (uren)",
@@ -1183,46 +1338,16 @@ def screen_project():
         )
         st.session_state["f_btd_uren"] = btd_uren
 
-    with c2:
-        plandatum = st.date_input(
-            "Plandatum",
-            key="input_plandatum",
-        )
-        st.session_state["f_plandatum"] = plandatum
-
-        klanteis = st.date_input(
-            "Klanteis (opleverdatum)",
-            key="input_klanteis",
-        )
-        st.session_state["f_klanteis"] = klanteis
-
-        scope_delen = st.text_input(
-            "Scope delen (TESI code)",
-            key="input_scope_delen",
-        )
-        st.session_state["f_scope_delen"] = scope_delen
-
-        scope_omvang = st.selectbox(
-            "Scope omvang (Complexiteit)",
-            options=["", "Laag", "Midden", "Hoog", "Hoog+"],
-            key="input_scope_omvang",
-        )
-        st.session_state["f_scope_omvang"] = scope_omvang
-
-    locatie = st.text_input("Locatie (Geo-code / Gebied)", key="input_locatie")
-    st.session_state["f_locatie"] = locatie
-
-    # --- Summary of filled fields ---
-    autofilled = st.session_state.get("_autofilled_pid")
-    if autofilled:
-        st.caption(f"Velden automatisch verrijkt vanuit **{autofilled}**")
+        autofilled = st.session_state.get("_autofilled_pid")
+        if autofilled and not _upload_ok:
+            st.caption(f"Velden automatisch verrijkt vanuit **{autofilled}**")
 
     # --- Store active PID for screen 2 ---
     active = st.session_state.get("f_pid", "").strip()
     if active:
         st.session_state["active_pid"] = active
 
-    st.markdown("---")
+    st.divider()
     if st.button("Analyseer maakbaarheid", type="primary", key="btn_analyse", use_container_width=True):
         mode = st.session_state.get("mode", "Demo")
         if mode == "Live" and not active:
